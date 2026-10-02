@@ -1,0 +1,5 @@
+__pycache__
+*.env
+*checkpoints*
+*.ipynb
+bot.log
