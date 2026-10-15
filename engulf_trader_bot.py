@@ -63,8 +63,10 @@ def fetch_klines(limit=200):
     daily_df['date'] = daily_df.index.date
     daily_df['close_d'] = daily_df['close_d'].astype('float64')
     daily_df = daily_df.sort_index()
-    daily_df['ma_40'] = daily_df['close_d'].rolling(window=40).mean()
-    daily_df['ma_20'] = daily_df['close_d'].rolling(window=20).mean()
+    # Сдвигаем MA на день назад: значение для дня D считается по закрытым
+    # дневным свечам до D-1 включительно (текущая незакрытая свеча не влияет)
+    daily_df['ma_40'] = daily_df['close_d'].rolling(window=40).mean().shift(1)
+    daily_df['ma_20'] = daily_df['close_d'].rolling(window=20).mean().shift(1)
     merged_df = ticker_df.merge(daily_df, how = 'left', on='date')
     merged_df['is_slowma_lower'] = merged_df['ma_20']>merged_df['ma_40']
     return merged_df
@@ -100,8 +102,8 @@ def main():
             # Сигнал считаем только по закрытым свечам: последняя строка df — ещё формирующаяся свеча
             df_closed = df.iloc[:-1]
             signal, sl, tp = calculating_signal(df_closed, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
-            print(f"SIgnal: {signal, tp, sl}")
-            logger.info(f"SIgnal: {signal, tp, sl}")
+            print(f"Signal: {signal, tp, sl}")
+            logger.info(f"Signal: {signal, tp, sl}")
             current_price = df['close'].iloc[-1]
 
             if time.time() - last_heartbeat > 300:
