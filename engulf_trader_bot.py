@@ -97,7 +97,9 @@ def main():
         try:
             df = fetch_klines(limit=200)
             print(df.head())
-            signal, sl, tp = calculating_signal(df, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
+            # Сигнал считаем только по закрытым свечам: последняя строка df — ещё формирующаяся свеча
+            df_closed = df.iloc[:-1]
+            signal, sl, tp = calculating_signal(df_closed, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
             print(f"SIgnal: {signal, tp, sl}")
             logger.info(f"SIgnal: {signal, tp, sl}")
             current_price = df['close'].iloc[-1]
