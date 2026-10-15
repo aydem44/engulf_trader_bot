@@ -4,19 +4,34 @@ import numpy as np
 
 def calculating_signal(kline_df, reward_risk, ma_fast, ma_slow):
     """
-    Генерирует торговые сигналы на основе паттерна "поглощение".
+    Генерирует торговый сигнал на основе паттерна "поглощение" (engulfing)
+    по двум последним свечам.
+
+    Логика:
+        - LONG: предыдущая свеча медвежья, текущая закрылась выше её открытия,
+          и тренд восходящий (is_slowma_lower == True).
+        - SHORT: предыдущая свеча бычья, текущая закрылась ниже её открытия,
+          и тренд нисходящий (is_slowma_lower == False).
+        - Иначе сигнала нет. Риск рассчитывается от тела текущей свечи,
+          тейк-профит — через заданный коэффициент risk/reward.
 
     Args:
-        kline_df (pd.DataFrame): Биржевые данные, содержащие open, high, low, close, is_slowma_higher
-        reward_risk (float): Коэффициент риск/прибыль. 
-        ma_fast(int): Период быстрой MA 
-        ma_slow(int): Период медленной MA 
+        kline_df (pd.DataFrame): Биржевые данные. Должен содержать колонки
+            'open', 'high', 'low', 'close' и 'is_slowma_lower' (bool-флаг
+            восходящего тренда по скользящим средним). Используются две
+            последние строки (iloc[-2] и iloc[-1]).
+        reward_risk (float): Коэффициент риск/прибыль (во сколько раз
+            тейк-профит больше риска).
+        ma_fast (int): Период быстрой скользящей средней (в расчёте
+            сигнала напрямую не используется).
+        ma_slow (int): Период медленной скользящей средней (в расчёте
+            сигнала напрямую не используется).
 
     Returns:
-        tuple[pd.Series, pd.Series, pd.Series]:
-            - entry_flag: 1 (LONG), -1 (SHORT), 0 (нет сигнала)
-            - stop_loss: Цена стоп-лосса на момент сигнала
-            - take_profit: Цена тейк-профита на момент сигнала
+        tuple[int, str | None, str | None]:
+            - entry_flag: 1 (LONG), -1 (SHORT), 0 (нет сигнала);
+            - stop_loss: цена стоп-лосса строкой, либо None;
+            - take_profit: цена тейк-профита строкой, либо None.
     """
   
     # Перевод входящего датафрейма в отдельные серии
@@ -50,8 +65,10 @@ def calculating_signal(kline_df, reward_risk, ma_fast, ma_slow):
             stop_loss = min_risk / curr_open
             take_profit = min_risk * reward_risk / curr_close
             print(f"⚠️ Использован минимальный риск: risk={risk} -> min_risk={min_risk}")
+        stop_loss = str(curr_close-stop_loss*curr_close)
+        take_profit = str(curr_close+take_profit*curr_close)    
     elif prev_bullish_candle and curr_close<prev_open and not trend_factor:
-        entry_flag=1
+        entry_flag=-1
         risk=curr_open-curr_close
         if risk>0:
             stop_loss=risk/curr_open
@@ -59,10 +76,10 @@ def calculating_signal(kline_df, reward_risk, ma_fast, ma_slow):
         else:
             stop_loss=0.01
             take_profit = 0.01
+        stop_loss = str(curr_close+stop_loss*curr_close)
+        take_profit = str(curr_close-take_profit*curr_close)    
     else:
         entry_flag=0
         stop_loss=None
         take_profit=None
-
-        
     return entry_flag, stop_loss, take_profit

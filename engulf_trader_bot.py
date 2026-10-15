@@ -97,8 +97,9 @@ def main():
         try:
             df = fetch_klines(limit=200)
             print(df.head())
-            signal, tp, sl = calculating_signal(df, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
-            print(signal, tp, sl)
+            signal, sl, tp = calculating_signal(df, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
+            print(f"SIgnal: {signal, tp, sl}")
+            logger.info(f"SIgnal: {signal, tp, sl}")
             current_price = df['close'].iloc[-1]
 
             if time.time() - last_heartbeat > 300:
@@ -135,7 +136,7 @@ def main():
                         f"Размер: {POSITION_SIZE} {SYMBOL[0:3]}\n"
                         f"TP: {tp}\n"
                         f"SL: {sl}\n"
-                        f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        f"Время: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     )
 
 
@@ -168,7 +169,7 @@ def main():
                         f"Размер: {POSITION_SIZE} {SYMBOL[0:3]}\n"
                         f"TP: {tp}\n"
                         f"SL: {sl}\n"
-                        f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        f"Время: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     )
 
             # Проверка, не закрылась ли позиция (по стопу/тейку)
