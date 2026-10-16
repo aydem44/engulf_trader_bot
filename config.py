@@ -4,7 +4,7 @@ STRATEGY_PARAMS = {
         'lookback' : 90,
         'range_days' : 3,
         'volatility' : 0.1,
-        'reward_risk' : 1.5
+        'reward_risk' : 2
         }
 
 # Параметры торговли

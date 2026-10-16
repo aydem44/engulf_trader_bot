@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from pybit.unified_trading import HTTP
 from config import STRATEGY_PARAMS, SYMBOL, TIMEFRAME, POSITION_SIZE, CATEGORY
 from strategy import calculating_signal 
-from trader import get_balance, open_long, open_short, test_connection, log_trade_to_csv, send_telegram_message
+from trader import get_balance, open_long, open_short, test_connection, log_trade_to_csv, send_telegram_message, get_instrument_filters
 
 load_dotenv()
 
@@ -91,6 +91,13 @@ def main():
         logger.error("❌ Нет подключения к Bybit! Робот остановлен.")
         return
 
+    # Минимальный размер ордера: если POSITION_SIZE меньше, ордер не выставится
+    min_qty = float(get_instrument_filters(SYMBOL)['min_qty'])
+    if float(POSITION_SIZE) < min_qty:
+        logger.error(f"❌ POSITION_SIZE={POSITION_SIZE} меньше минимального ордера {min_qty} для {SYMBOL}. Робот остановлен.")
+        return
+    logger.info(f"Размер позиции: {POSITION_SIZE} {SYMBOL[0:3]} | Минимальный лот: {min_qty}")
+
     last_signal = None
     position = None
     last_heartbeat = time.time()
@@ -101,7 +108,7 @@ def main():
             print(df.head())
             # Сигнал считаем только по закрытым свечам: последняя строка df — ещё формирующаяся свеча
             df_closed = df.iloc[:-1]
-            signal, sl, tp = calculating_signal(df_closed, reward_risk=2, ma_fast=20, ma_slow=40) # Вынесем потом в конфиг
+            signal, sl, tp = calculating_signal(df_closed, reward_risk=STRATEGY_PARAMS['reward_risk'], ma_fast=20, ma_slow=40)
             print(f"Signal: {signal, tp, sl}")
             logger.info(f"Signal: {signal, tp, sl}")
             current_price = df['close'].iloc[-1]
