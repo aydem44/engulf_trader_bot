@@ -39,13 +39,14 @@ _instrument_cache = {}
 
 
 def get_instrument_filters(symbol):
-    """Шаг цены (tickSize) и шаг количества (qtyStep) для символа (с кэшем)."""
+    """Шаг цены/количества и минимальный ордер для символа (с кэшем)."""
     if symbol not in _instrument_cache:
         info = session.get_instruments_info(category=CATEGORY, symbol=symbol)
         item = info['result']['list'][0]
         _instrument_cache[symbol] = {
             'tick_size': Decimal(item['priceFilter']['tickSize']),
             'qty_step': Decimal(item['lotSizeFilter']['qtyStep']),
+            'min_qty': Decimal(item['lotSizeFilter']['minOrderQty']),
         }
     return _instrument_cache[symbol]
 
