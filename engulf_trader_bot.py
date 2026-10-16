@@ -121,12 +121,12 @@ def main():
                     )
                     position = {'side' : 'long', 'entry' : pos_info.get('result').get('list')[0].get('avgPrice'), 'qty' : pos_info.get('result').get('list')[0].get('size')}
                     last_signal = 1
-                    logger.info(f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {current_price:.2f}")
+                    logger.info(f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
                         symbol=SYMBOL,
                         side='LONG',
                         qty=POSITION_SIZE,
-                        entry_price=current_price,
+                        entry_price=position['entry'],
                         tp=tp,
                         sl=sl,
                         exit_price=None,
@@ -136,7 +136,7 @@ def main():
                     send_telegram_message(
                         f"🟢 <b>Открыта LONG-позиция </b>\n"
                         f"Символ: {SYMBOL}\n"
-                        f"Цена: {current_price}\n"
+                        f"Цена: {position['entry']}\n"
                         f"Размер: {POSITION_SIZE} {SYMBOL[0:3]}\n"
                         f"TP: {tp}\n"
                         f"SL: {sl}\n"
@@ -154,12 +154,12 @@ def main():
                     )
                     position = {'side' : 'short', 'entry' : pos_info.get('result').get('list')[0].get('avgPrice'), 'qty' : pos_info.get('result').get('list')[0].get('size')}
                     last_signal = -1
-                    logger.info(f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {current_price:.2f}")
+                    logger.info(f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
                         symbol=SYMBOL,
-                        side='LONG',
+                        side='SHORT',
                         qty=POSITION_SIZE,
-                        entry_price=current_price,
+                        entry_price=position['entry'],
                         tp=tp,
                         sl=sl,
                         exit_price=None,
@@ -169,7 +169,7 @@ def main():
                     send_telegram_message(
                         f"🔴 <b>Открыта SHORT-позиция</b>\n"
                         f"Символ: {SYMBOL}\n"
-                        f"Цена: {current_price}\n"
+                        f"Цена: {position['entry']}\n"
                         f"Размер: {POSITION_SIZE} {SYMBOL[0:3]}\n"
                         f"TP: {tp}\n"
                         f"SL: {sl}\n"
