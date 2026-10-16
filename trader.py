@@ -124,6 +124,9 @@ def open_short(symbol, qty, tp, sl):
 def test_connection():
     try:
         balance = get_balance('USDT')
+        if balance is None:
+            logger.error("❌ Не удалось получить баланс USDT — нет соединения к Bybit или неверные ключи")
+            return False
         logger.info(f"✅ Подключение к Bybit успешно!")
         logger.info(f"💰 Баланс USDT: {balance}")    
         return True

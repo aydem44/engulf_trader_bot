@@ -119,7 +119,8 @@ def main():
                         category=CATEGORY,
                         symbol=SYMBOL
                     )
-                    position = {'side' : 'long', 'entry' : pos_info.get('result').get('list')[0].get('avgPrice'), 'qty' : pos_info.get('result').get('list')[0].get('size')}
+                    fill = pos_info.get('result').get('list')[0]
+                    position = {'side' : 'long', 'entry' : fill.get('avgPrice'), 'qty' : fill.get('size'), 'opened_at' : fill.get('createdTime')}
                     last_signal = 1
                     logger.info(f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
@@ -152,7 +153,8 @@ def main():
                         category=CATEGORY,
                         symbol=SYMBOL
                     )
-                    position = {'side' : 'short', 'entry' : pos_info.get('result').get('list')[0].get('avgPrice'), 'qty' : pos_info.get('result').get('list')[0].get('size')}
+                    fill = pos_info.get('result').get('list')[0]
+                    position = {'side' : 'short', 'entry' : fill.get('avgPrice'), 'qty' : fill.get('size'), 'opened_at' : fill.get('createdTime')}
                     last_signal = -1
                     logger.info(f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
@@ -176,42 +178,41 @@ def main():
                         f"Время: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     )
 
-            # Проверка, не закрылась ли позиция (по стопу/тейку)
-            pos_info = session.get_positions(
-                category=CATEGORY,
-                symbol=SYMBOL
-            )
-            if float(pos_info.get('result').get('list')[0].get('size')) < 10 and position:
-
-                exit_price = current_price
-                pos_entry = float(position['entry'])
-                pos_qty = float(position['qty'])
-
-                if position['side'] == 'long':
-                    pnl = (exit_price - pos_entry)/pos_entry
-                else:
-                    pnl = (pos_entry - exit_price)/pos_entry
-
-                logger.info(f"🔒 Позиция закрыта (по стопу или тейку)")
-                log_trade_to_csv(
+            # Закрытие определяем по данным биржи о закрытых сделках (не по размеру —
+            # остатки-«пыль» больше не мешают)
+            if position:
+                closed_pnl = session.get_closed_pnl(
+                    category=CATEGORY,
                     symbol=SYMBOL,
-                    side=position['side'],
-                    qty=position['qty'],
-                    entry_price=position['entry'],
-                    tp=None,
-                    sl=None,
-                    exit_price=exit_price,
-                    pnl=pnl,
-                    status='closed')
-                send_telegram_message(
-                    f"<b>🔒 Закрыта {position['side']}-позиция</b>\n"
-                    f"Символ: {SYMBOL}\n"
-                    f"Цена: {exit_price}\n"
-                    f"Размер: {position['qty']} {SYMBOL[0:3]}\n"
-                    f"PNL: {pnl}"
+                    startTime=position['opened_at'],
+                    limit=1
                 )
-                position = None
-                last_signal = None
+                records = closed_pnl.get('result', {}).get('list', [])
+                if records:
+                    rec = records[0]
+                    exit_price = float(rec['avgExitPrice'])
+                    pnl = float(rec['closedPnl'])
+
+                    logger.info(f"🔒 Позиция закрыта по {exit_price} (PnL {pnl})")
+                    log_trade_to_csv(
+                        symbol=SYMBOL,
+                        side=position['side'],
+                        qty=rec['qty'],
+                        entry_price=rec['avgEntryPrice'],
+                        tp=None,
+                        sl=None,
+                        exit_price=exit_price,
+                        pnl=pnl,
+                        status='closed')
+                    send_telegram_message(
+                        f"<b>🔒 Закрыта {position['side']}-позиция</b>\n"
+                        f"Символ: {SYMBOL}\n"
+                        f"Цена: {exit_price}\n"
+                        f"Размер: {rec['qty']} {SYMBOL[0:3]}\n"
+                        f"PNL: {pnl}"
+                    )
+                    position = None
+                    last_signal = None
             time.sleep(60)
 
         except KeyboardInterrupt:
