@@ -12,6 +12,7 @@ from config import CATEGORY
 import csv
 from datetime import datetime
 import requests
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -34,6 +35,26 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 
+_instrument_cache = {}
+
+
+def get_instrument_filters(symbol):
+    """Шаг цены (tickSize) и шаг количества (qtyStep) для символа (с кэшем)."""
+    if symbol not in _instrument_cache:
+        info = session.get_instruments_info(category=CATEGORY, symbol=symbol)
+        item = info['result']['list'][0]
+        _instrument_cache[symbol] = {
+            'tick_size': Decimal(item['priceFilter']['tickSize']),
+            'qty_step': Decimal(item['lotSizeFilter']['qtyStep']),
+        }
+    return _instrument_cache[symbol]
+
+
+def round_to_step(value, step, rounding=ROUND_HALF_UP):
+    """Округляет value к ближайшему кратному step (без ошибок float)."""
+    return (Decimal(str(value)) / step).quantize(Decimal('1'), rounding=rounding) * step
+
+
 # In[17]:
 
 
@@ -53,16 +74,20 @@ def get_balance(coin='USDT'):
 def place_market_order(symbol, side, qty, tp, sl):
     order = None
     try:
-        logger.info(f"📈 Отправка ордера: {side} {qty} {symbol}. TP={tp} SL={sl}")
+        filters = get_instrument_filters(symbol)
+        qty_r = round_to_step(qty, filters['qty_step'], ROUND_DOWN)
+        tp_r = round_to_step(tp, filters['tick_size'])
+        sl_r = round_to_step(sl, filters['tick_size'])
+        logger.info(f"📈 Отправка ордера: {side} {qty_r} {symbol}. TP={tp_r} SL={sl_r}")
         order = session.place_order(
             category=CATEGORY,
             symbol=symbol,
             side=side,
-            qty=str(qty), 
+            qty=format(qty_r, 'f'),
             orderType='Market',
             marketUnit='baseCoin',
-            takeProfit=str(tp),  
-            stopLoss=str(sl)
+            takeProfit=format(tp_r, 'f'),
+            stopLoss=format(sl_r, 'f')
 )
         logger.info(f"✅ Ордер исполнен: {order}")      
         return order
