@@ -41,7 +41,6 @@ include = ["."]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
 addopts = "-v -ra --cov"
 
 [tool.coverage.run]
@@ -50,4 +49,4 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 0
+fail_under = 60 
