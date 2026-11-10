@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.5.4",
+    "pandas>=3.1.1",
+    "pybit>=5.17.0",
+    "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
+]
 
 [project.scripts]
 engulf-trader-bot = "engulf_trader_bot:main"
@@ -23,7 +29,7 @@ dev = [
 
 [tool.ruff]
 target-version = "py312"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -36,7 +42,7 @@ include = ["."]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-v -ra --cov=."
+addopts = "-v -ra --cov"
 
 [tool.coverage.run]
 source = ["engulf_trader_bot", "strategy", "trader", "config"]
