@@ -19,17 +19,15 @@ from config import CATEGORY
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-proxy_host = os.getenv("PROXY_HOST")
-proxy_port = os.getenv("PROXY_PORT")
-proxy_login = os.getenv("PROXY_LOGIN")
-proxy_password = os.getenv("PROXY_PASSWORD")
-proxy_url = f"http://{proxy_login}:{proxy_password}@{proxy_host}:{proxy_port}"
-os.environ["HTTP_PROXY"] = proxy_url
-os.environ["HTTPS_PROXY"] = proxy_url
+# proxy_host = os.getenv("PROXY_HOST")
+# proxy_port = os.getenv("PROXY_PORT")
+# proxy_login = os.getenv("PROXY_LOGIN")
+# proxy_password = os.getenv("PROXY_PASSWORD")
+# proxy_url = f"http://{proxy_login}:{proxy_password}@{proxy_host}:{proxy_port}"
+# os.environ["HTTP_PROXY"] = proxy_url
+# os.environ["HTTPS_PROXY"] = proxy_url
 
-session = HTTP(
-    testnet=False, api_key=os.getenv("BYBIT_API_KEY"), api_secret=os.getenv("BYBIT_SECRET")
-)
+session = HTTP(testnet=False, api_key=os.getenv("BYBIT_API_KEY"), api_secret=os.getenv("BYBIT_SECRET"))
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -134,9 +132,7 @@ def test_connection():
     try:
         balance = get_balance("USDT")
         if balance is None:
-            logger.error(
-                "❌ Не удалось получить баланс USDT — нет соединения к Bybit или неверные ключи"
-            )
+            logger.error("❌ Не удалось получить баланс USDT — нет соединения к Bybit или неверные ключи")
             return False
         logger.info("✅ Подключение к Bybit успешно!")
         logger.info(f"💰 Баланс USDT: {balance}")
@@ -149,9 +145,7 @@ def test_connection():
 # In[ ]:
 
 
-def log_trade_to_csv(
-    symbol, side, qty, entry_price, tp, sl, exit_price=None, pnl=None, status=None
-):
+def log_trade_to_csv(symbol, side, qty, entry_price, tp, sl, exit_price=None, pnl=None, status=None):
     file_name = cast(str, os.getenv("CSV_FILE"))
     file_exist = os.path.isfile(file_name)
     with open(file_name, mode="a", newline="", encoding="utf-8") as f:

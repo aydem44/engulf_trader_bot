@@ -33,14 +33,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройка прокси
-proxy_url = f"http://{os.getenv('PROXY_LOGIN')}:{os.getenv('PROXY_PASSWORD')}@{os.getenv('PROXY_HOST')}:{os.getenv('PROXY_PORT')}"
-os.environ["HTTP_PROXY"] = proxy_url
-os.environ["HTTPS_PROXY"] = proxy_url
+# proxy_url = f"http://{os.getenv('PROXY_LOGIN')}:{os.getenv('PROXY_PASSWORD')}@{os.getenv('PROXY_HOST')}:{os.getenv('PROXY_PORT')}"
+# os.environ["HTTP_PROXY"] = proxy_url
+# os.environ["HTTPS_PROXY"] = proxy_url
 
 # Настройка подключения к Байбит
-session = HTTP(
-    testnet=False, api_key=os.getenv("BYBIT_API_KEY"), api_secret=os.getenv("BYBIT_SECRET")
-)
+session = HTTP(testnet=False, api_key=os.getenv("BYBIT_API_KEY"), api_secret=os.getenv("BYBIT_SECRET"))
 
 
 def fetch_klines(limit=200):
@@ -82,6 +80,24 @@ def fetch_klines(limit=200):
     merged_df = ticker_df.merge(daily_df, how="left", on="date")
     merged_df["is_slowma_lower"] = merged_df["ma_20"] > merged_df["ma_40"]
     return merged_df
+
+
+def _get_open_position_size() -> float | None:
+    """Вернуть суммарный размер позиции на бирже или None при ошибке API."""
+    pos_info = cast(dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL))
+    if pos_info.get("retCode") != 0:
+        logger.error(f"❌ Не удалось получить позиции: {pos_info.get('retMsg')}")
+        return None
+    positions = (pos_info.get("result") or {}).get("list") or []
+    return sum(float(item.get("size") or 0) for item in positions)
+
+
+def _closed_pnl_matches_position(record: dict[str, Any], position: dict[str, Any]) -> bool:
+    """Отклонить closed-pnl, созданный до открытия текущей позиции."""
+    try:
+        return int(record["createdTime"]) >= int(position["opened_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def main():
@@ -139,9 +155,7 @@ def main():
                 logger.info(f"🟢 LONG сигнал! Цена: {df['close'].iloc[-1]:.2f}")
                 order = open_long(SYMBOL, POSITION_SIZE, tp=tp, sl=sl)
                 if order:
-                    pos_info = cast(
-                        dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL)
-                    )
+                    pos_info = cast(dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL))
                     fill = cast(
                         list[dict[str, Any]],
                         cast(dict[str, Any], pos_info.get("result")).get("list"),
@@ -153,9 +167,7 @@ def main():
                         "opened_at": fill.get("createdTime"),
                     }
                     last_signal = 1
-                    logger.info(
-                        f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}"
-                    )
+                    logger.info(f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
                         symbol=SYMBOL,
                         side="LONG",
@@ -181,9 +193,7 @@ def main():
                 logger.info(f"🔴 SHORT сигнал! Цена: {df['close'].iloc[-1]:.2f}")
                 order = open_short(SYMBOL, POSITION_SIZE, tp=tp, sl=sl)
                 if order:
-                    pos_info = cast(
-                        dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL)
-                    )
+                    pos_info = cast(dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL))
                     fill = cast(
                         list[dict[str, Any]],
                         cast(dict[str, Any], pos_info.get("result")).get("list"),
@@ -195,9 +205,7 @@ def main():
                         "opened_at": fill.get("createdTime"),
                     }
                     last_signal = -1
-                    logger.info(
-                        f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}"
-                    )
+                    logger.info(f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
                     log_trade_to_csv(
                         symbol=SYMBOL,
                         side="SHORT",
@@ -219,18 +227,31 @@ def main():
                         f"Время: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     )
 
-            # Закрытие определяем по данным биржи о закрытых сделках (не по размеру —
-            # остатки-«пыль» больше не мешают)
+            # Закрытие подтверждаем только когда на бирже нет открытой позиции,
+            # и есть closed-pnl, созданный после открытия текущей позиции
             if position:
-                closed_pnl = cast(
-                    dict[str, Any],
-                    session.get_closed_pnl(
-                        category=CATEGORY, symbol=SYMBOL, startTime=position["opened_at"], limit=1
-                    ),
-                )
-                records = closed_pnl.get("result", {}).get("list", [])
-                if records:
-                    rec = records[0]
+                rec = None
+                open_size = _get_open_position_size()
+                if open_size == 0:
+                    closed_pnl = cast(
+                        dict[str, Any],
+                        session.get_closed_pnl(
+                            category=CATEGORY,
+                            symbol=SYMBOL,
+                            startTime=position["opened_at"],
+                            limit=1,
+                        ),
+                    )
+                    records = []
+                    if closed_pnl.get("retCode") != 0:
+                        logger.error(f"❌ Не удалось получить closed-pnl: {closed_pnl.get('retMsg')}")
+                    else:
+                        records = (closed_pnl.get("result") or {}).get("list") or []
+                    rec = next(
+                        (record for record in records if _closed_pnl_matches_position(record, position)),
+                        None,
+                    )
+                if rec:
                     exit_price = float(rec["avgExitPrice"])
                     pnl = float(rec["closedPnl"])
 
