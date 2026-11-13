@@ -75,7 +75,7 @@ def get_balance(coin="USDT"):
 # In[ ]:
 
 
-def place_market_order(symbol, side, qty, tp, sl):
+def place_market_order(symbol, side, qty, tp, sl, order_link_id=None):
     order = None
     try:
         filters = get_instrument_filters(symbol)
@@ -83,16 +83,19 @@ def place_market_order(symbol, side, qty, tp, sl):
         tp_r = round_to_step(tp, filters["tick_size"])
         sl_r = round_to_step(sl, filters["tick_size"])
         logger.info(f"📈 Отправка ордера: {side} {qty_r} {symbol}. TP={tp_r} SL={sl_r}")
-        order = session.place_order(
-            category=CATEGORY,
-            symbol=symbol,
-            side=side,
-            qty=format(qty_r, "f"),
-            orderType="Market",
-            marketUnit="baseCoin",
-            takeProfit=format(tp_r, "f"),
-            stopLoss=format(sl_r, "f"),
-        )
+        order_kwargs = {
+            "category": CATEGORY,
+            "symbol": symbol,
+            "side": side,
+            "qty": format(qty_r, "f"),
+            "orderType": "Market",
+            "marketUnit": "baseCoin",
+            "takeProfit": format(tp_r, "f"),
+            "stopLoss": format(sl_r, "f"),
+        }
+        if order_link_id:
+            order_kwargs["orderLinkId"] = order_link_id
+        order = session.place_order(**order_kwargs)
         logger.info(f"✅ Ордер исполнен: {order}")
         return order
 
@@ -101,16 +104,16 @@ def place_market_order(symbol, side, qty, tp, sl):
         return None
 
 
-def open_long(symbol, qty, tp, sl):
+def open_long(symbol, qty, tp, sl, order_link_id=None):
     logger.info(f"📤 Вызов open_long: {symbol} {qty} TP={tp} SL={sl}")
-    order = place_market_order(symbol, "Buy", qty, tp, sl)
+    order = place_market_order(symbol, "Buy", qty, tp, sl, order_link_id=order_link_id)
     logger.info(f"📤 Результат open_long: {order}")
     return order
 
 
-def open_short(symbol, qty, tp, sl):
+def open_short(symbol, qty, tp, sl, order_link_id=None):
     logger.info(f"📤 Вызов open_short: {symbol} {qty} TP={tp} SL={sl}")
-    order = place_market_order(symbol, "Sell", qty, tp, sl)
+    order = place_market_order(symbol, "Sell", qty, tp, sl, order_link_id=order_link_id)
     logger.info(f"📤 Результат open_short: {order}")
     return order
 

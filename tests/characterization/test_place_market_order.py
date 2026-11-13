@@ -68,3 +68,15 @@ def test_place_market_order_returns_nonzero_retcode_response_unchanged():
     place_order.assert_called_once()
     assert result is ERROR_RESPONSE
     assert result["retCode"] == 10001
+
+
+def test_place_market_order_passes_order_link_id():
+    """The bot supplies a unique orderLinkId for entry-order recovery."""
+    with (
+        patch.object(trader.session, "get_instruments_info", return_value=INSTRUMENTS_RESPONSE),
+        patch.object(trader.session, "place_order", return_value=SUCCESS_RESPONSE) as place_order,
+    ):
+        result = trader.place_market_order("MNTUSDT", "Buy", 1.239, 2.3456, 1.2344, order_link_id="engulf-test-1")
+
+    assert result is SUCCESS_RESPONSE
+    assert place_order.call_args.kwargs["orderLinkId"] == "engulf-test-1"

@@ -1,4 +1,4 @@
-"""Regression tests for risk R1 (false close by an old closed-pnl record).
+"""Regression tests for risks R1 and R13 (false close by an old closed-pnl record).
 
 The tests drive one or more iterations of ``engulf_trader_bot.main()`` with all
 pybit calls mocked. A position may only be closed when the exchange reports
@@ -109,6 +109,12 @@ def run_main(closed_pnl_responses, iterations, position_responses=None):
         patch.object(bot, "open_short", return_value={"retCode": 0}) as open_short,
         patch.object(bot, "log_trade_to_csv") as log_trade,
         patch.object(bot, "send_telegram_message") as telegram,
+        patch.object(bot.session, "get_server_time", return_value={"retCode": 0, "time": 1700000000000}),
+        patch.object(
+            bot.session,
+            "get_executions",
+            return_value={"retCode": 0, "result": {"list": []}},
+        ) as get_executions,
         patch.object(bot.session, "get_positions", side_effect=position_responses) as get_positions,
         patch.object(bot.session, "get_closed_pnl", side_effect=closed_pnl_responses) as get_closed_pnl,
         patch.object(bot.time, "sleep", side_effect=fake_sleep),
@@ -123,6 +129,7 @@ def run_main(closed_pnl_responses, iterations, position_responses=None):
         telegram=telegram,
         get_positions=get_positions,
         get_closed_pnl=get_closed_pnl,
+        get_executions=get_executions,
     )
 
 
@@ -187,6 +194,10 @@ def test_fresh_closed_pnl_closes_position_once():
     statuses = [call.kwargs["status"] for call in mocks.log_trade.call_args_list]
     assert statuses == ["Open", "closed"]
 
+    close_query = mocks.get_closed_pnl.call_args.kwargs
+    assert "endTime" in close_query
+    assert close_query["limit"] == 100
+
     close_call = mocks.log_trade.call_args_list[1]
     assert close_call.kwargs["exit_price"] == 0.6279
     assert close_call.kwargs["pnl"] == -0.001547
@@ -222,3 +233,52 @@ def test_closed_pnl_api_error_does_not_close_position():
     assert mocks.open_long.call_count == 1
     assert [call.kwargs["status"] for call in mocks.log_trade.call_args_list] == ["Open"]
     assert not any("Закрыта" in call.args[0] for call in mocks.telegram.call_args_list)
+
+
+def test_resolve_opened_at_prefers_execution_time():
+    """The exact first fill time wins over the pre-order timestamp."""
+    with patch.object(
+        bot.session,
+        "get_executions",
+        return_value={"retCode": 0, "result": {"list": [{"execTime": "1700000000500"}]}},
+    ):
+        opened_at = bot._resolve_opened_at("order-1", 1700000000000)
+
+    assert opened_at == 1700000000500
+
+
+def test_resolve_opened_at_falls_back_to_sent_at_when_executions_empty():
+    """Without executions, the pre-order Bybit time is used."""
+    with patch.object(
+        bot.session,
+        "get_executions",
+        return_value={"retCode": 0, "result": {"list": []}},
+    ):
+        opened_at = bot._resolve_opened_at("order-1", 1700000000000)
+
+    assert opened_at == 1700000000000
+
+
+def test_resolve_opened_at_uses_sent_at_without_order_id():
+    """If place_order did not return an id, the pre-order time is used."""
+    assert bot._resolve_opened_at(None, 1700000000000) == 1700000000000
+
+
+def test_closed_pnl_rejects_record_from_another_position():
+    """The old 0.6279 record has a different qty/entry and must be rejected."""
+    position = {
+        "side": "long",
+        "entry": "0.5358",
+        "qty": "100",
+        "opened_at": 1700000000000,
+        "entry_sent_at": 1700000000000,
+    }
+    old_record = {
+        "createdTime": "1700000001000",
+        "closedSize": "10",
+        "qty": "10",
+        "side": "Sell",
+        "avgEntryPrice": "0.6268",
+    }
+
+    assert not bot._closed_pnl_matches_position(old_record, position)

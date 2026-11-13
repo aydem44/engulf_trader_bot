@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from typing import Any, cast
+from uuid import uuid4
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -52,7 +53,7 @@ def fetch_klines(limit=200):
         columns=["datetime", "open", "high", "low", "close", "volume", "turnover"],
     )
     ticker_df["datetime"] = pd.to_datetime(ticker_df["datetime"].astype("int64"), unit="ms")
-    ticker_df.set_index("datetime", inplace=True)
+    ticker_df = ticker_df.set_index("datetime")
     ticker_df = ticker_df.astype("float64")
     ticker_df = ticker_df.sort_index()
     ticker_df["date"] = cast(pd.DatetimeIndex, ticker_df.index).date
@@ -68,7 +69,7 @@ def fetch_klines(limit=200):
     )
     daily_df = daily_df[["datetime", "close_d"]].copy()
     daily_df["datetime"] = pd.to_datetime(daily_df["datetime"].astype("int64"), unit="ms")
-    daily_df.set_index("datetime", inplace=True)
+    daily_df = daily_df.set_index("datetime")
     daily_df["date"] = cast(pd.DatetimeIndex, daily_df.index).date
     daily_df["close_d"] = daily_df["close_d"].astype("float64")
     daily_df = daily_df.sort_index()
@@ -92,10 +93,62 @@ def _get_open_position_size() -> float | None:
     return sum(float(item.get("size") or 0) for item in positions)
 
 
-def _closed_pnl_matches_position(record: dict[str, Any], position: dict[str, Any]) -> bool:
-    """Отклонить closed-pnl, созданный до открытия текущей позиции."""
+def _get_server_time_ms() -> int:
+    """Серверное время Bybit в ms; локальное — только аварийный fallback."""
     try:
-        return int(record["createdTime"]) >= int(position["opened_at"])
+        response = cast(dict[str, Any], session.get_server_time())
+        if response.get("retCode") == 0 and response.get("time"):
+            return int(response["time"])
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось получить время Bybit: {e}")
+    return int(time.time() * 1000)
+
+
+def _get_entry_exec_time(order_id: str) -> int | None:
+    """Время первого филла входного ордера по данным Bybit."""
+    try:
+        response = cast(
+            dict[str, Any],
+            session.get_executions(category=CATEGORY, symbol=SYMBOL, orderId=order_id),
+        )
+        if response.get("retCode") != 0:
+            return None
+        records = (response.get("result") or {}).get("list") or []
+        times = [int(item["execTime"]) for item in records if item.get("execTime") and int(item["execTime"]) > 0]
+        return min(times) if times else None
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось получить executions для {order_id}: {e}")
+        return None
+
+
+def _resolve_opened_at(order_id: str | None, sent_at: int) -> int:
+    """Точное время входа: execution -> время до отправки ордера."""
+    exec_time = _get_entry_exec_time(order_id) if order_id else None
+    if exec_time:
+        return exec_time
+
+    return sent_at
+
+
+def _closed_pnl_matches_position(record: dict[str, Any], position: dict[str, Any]) -> bool:
+    """Сопоставить closed-pnl именно с текущей позицией."""
+    try:
+        opened_at = int(position.get("entry_sent_at") or position["opened_at"])
+        if int(record["createdTime"]) < opened_at - 5000:
+            return False
+
+        position_qty = float(position.get("qty") or 0)
+        record_qty = float(record.get("closedSize") or 0) or float(record.get("qty") or 0)
+        if position_qty > 0 and abs(position_qty - record_qty) > 1e-9:
+            return False
+
+        expected_close_side = "Sell" if position["side"] == "long" else "Buy"
+        if record.get("side") != expected_close_side:
+            return False
+
+        expected_entry = float(position["entry"])
+        actual_entry = float(record["avgEntryPrice"])
+        return abs(actual_entry - expected_entry) <= max(1e-9, abs(expected_entry) * 1e-6)
     except (KeyError, TypeError, ValueError):
         return False
 
@@ -153,8 +206,11 @@ def main():
 
             if signal == 1 and last_signal != 1 and not position:
                 logger.info(f"🟢 LONG сигнал! Цена: {df['close'].iloc[-1]:.2f}")
-                order = open_long(SYMBOL, POSITION_SIZE, tp=tp, sl=sl)
+                entry_sent_at = _get_server_time_ms()
+                order_link_id = f"engulf-{entry_sent_at}-{uuid4().hex[:8]}"
+                order = open_long(SYMBOL, POSITION_SIZE, tp=tp, sl=sl, order_link_id=order_link_id)
                 if order:
+                    order_id = (cast(dict[str, Any], order).get("result") or {}).get("orderId")
                     pos_info = cast(dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL))
                     fill = cast(
                         list[dict[str, Any]],
@@ -164,7 +220,10 @@ def main():
                         "side": "long",
                         "entry": fill.get("avgPrice"),
                         "qty": fill.get("size"),
-                        "opened_at": fill.get("createdTime"),
+                        "opened_at": _resolve_opened_at(order_id, entry_sent_at),
+                        "entry_sent_at": entry_sent_at,
+                        "entry_order_id": order_id,
+                        "entry_order_link_id": order_link_id,
                     }
                     last_signal = 1
                     logger.info(f"✅ LONG позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
@@ -191,8 +250,11 @@ def main():
 
             elif signal == -1 and last_signal != -1 and not position:
                 logger.info(f"🔴 SHORT сигнал! Цена: {df['close'].iloc[-1]:.2f}")
-                order = open_short(SYMBOL, POSITION_SIZE, tp=tp, sl=sl)
+                entry_sent_at = _get_server_time_ms()
+                order_link_id = f"engulf-{entry_sent_at}-{uuid4().hex[:8]}"
+                order = open_short(SYMBOL, POSITION_SIZE, tp=tp, sl=sl, order_link_id=order_link_id)
                 if order:
+                    order_id = (cast(dict[str, Any], order).get("result") or {}).get("orderId")
                     pos_info = cast(dict[str, Any], session.get_positions(category=CATEGORY, symbol=SYMBOL))
                     fill = cast(
                         list[dict[str, Any]],
@@ -202,7 +264,10 @@ def main():
                         "side": "short",
                         "entry": fill.get("avgPrice"),
                         "qty": fill.get("size"),
-                        "opened_at": fill.get("createdTime"),
+                        "opened_at": _resolve_opened_at(order_id, entry_sent_at),
+                        "entry_sent_at": entry_sent_at,
+                        "entry_order_id": order_id,
+                        "entry_order_link_id": order_link_id,
                     }
                     last_signal = -1
                     logger.info(f"✅ SHORT позиция открыта! {POSITION_SIZE} {SYMBOL[0:3]} по {position['entry']}")
@@ -233,13 +298,20 @@ def main():
                 rec = None
                 open_size = _get_open_position_size()
                 if open_size == 0:
+                    position_entry_sent_at = int(position.get("entry_sent_at") or position["opened_at"])
+                    now_ms = _get_server_time_ms()
+                    start_time = max(
+                        position_entry_sent_at - 5000,
+                        now_ms - 7 * 24 * 60 * 60 * 1000,
+                    )
                     closed_pnl = cast(
                         dict[str, Any],
                         session.get_closed_pnl(
                             category=CATEGORY,
                             symbol=SYMBOL,
-                            startTime=position["opened_at"],
-                            limit=1,
+                            startTime=start_time,
+                            endTime=now_ms,
+                            limit=100,
                         ),
                     )
                     records = []
@@ -247,10 +319,8 @@ def main():
                         logger.error(f"❌ Не удалось получить closed-pnl: {closed_pnl.get('retMsg')}")
                     else:
                         records = (closed_pnl.get("result") or {}).get("list") or []
-                    rec = next(
-                        (record for record in records if _closed_pnl_matches_position(record, position)),
-                        None,
-                    )
+                    matching = [record for record in records if _closed_pnl_matches_position(record, position)]
+                    rec = max(matching, key=lambda item: int(item.get("createdTime", 0))) if matching else None
                 if rec:
                     exit_price = float(rec["avgExitPrice"])
                     pnl = float(rec["closedPnl"])
